@@ -1,4 +1,4 @@
-
+```yaml
 name: Build BlueShare APK
 
 on:
@@ -28,60 +28,54 @@ jobs:
         with:
           channel: stable
 
-      - name: Generate Android project files
+      - name: Generate Android files
         run: flutter create --platforms=android --project-name blueshare .
 
       - name: Install Android API 36
         run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -f "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
-          fi
-          if [ -z "$SDKMANAGER" ] || [ ! -f "$SDKMANAGER" ]; then
-            echo "ERROR: Android sdkmanager was not found"
-            find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -n 20
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
             exit 1
           fi
-          yes | "$SDKMANAGER" --licenses
+          yes | "$SDKMANAGER" --licenses || true
           "$SDKMANAGER" "platforms;android-36"
 
-      - name: Set Android compile SDK to 36
+      - name: Set compile SDK to 36
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
 
-          kotlin = Path("android/app/build.gradle.kts")
-          groovy = Path("android/app/build.gradle")
+          k = Path("android/app/build.gradle.kts")
+          g = Path("android/app/build.gradle")
 
-          if kotlin.exists():
-              path = kotlin
+          if k.exists():
+              p = k
               pattern = r'(?m)^\s*compileSdk\s*=.*$'
               replacement = '    compileSdk = 36'
-          elif groovy.exists():
-              path = groovy
+          elif g.exists():
+              p = g
               pattern = r'(?m)^\s*compileSdk(?:Version)?\s+.*$'
               replacement = '    compileSdkVersion 36'
           else:
-              raise SystemExit("Android app Gradle file not found")
+              raise SystemExit("Gradle file not found")
 
-          content = path.read_text()
-          content, count = re.subn(pattern, replacement, content, count=1)
-
-          if count == 0:
-              raise SystemExit("Could not find compileSdk setting")
-
-          path.write_text(content)
-          print("Android compileSdk set to 36")
+          s = p.read_text()
+          s, n = re.subn(pattern, replacement, s, count=1)
+          if n == 0:
+              raise SystemExit("compileSdk setting not found")
+          p.write_text(s)
+          print("compileSdk set to 36")
           PY
 
-      - name: Add offline connection permissions
+      - name: Add offline permissions
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path("android/app/src/main/AndroidManifest.xml")
-          content = path.read_text()
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          s = p.read_text()
 
           permissions = [
               '<uses-permission android:name="android.permission.INTERNET" />',
@@ -89,10 +83,8 @@ jobs:
               '<uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />',
               '<uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />',
               '<uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />',
-              '<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />',
               '<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />',
               '<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />',
-              '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="28" />',
               '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />',
               '<uses-permission android:name="android.permission.BLUETOOTH_SCAN" />',
               '<uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />',
@@ -100,26 +92,22 @@ jobs:
               '<uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />',
           ]
 
-          for permission in permissions:
-              name = permission.split('android:name="')[1].split('"')[0]
-              if f'android:name="{name}"' not in content:
-                  content = content.replace(
-                      '<application',
-                      '    ' + permission + '\n    <application',
-                      1
-                  )
+          for item in permissions:
+              name = item.split('android:name="')[1].split('"')[0]
+              if f'android:name="{name}"' not in s:
+                  s = s.replace('<application', item + '\n    <application', 1)
 
-          path.write_text(content)
-          print("Offline connection permissions added to AndroidManifest.xml")
+          p.write_text(s)
+          print("Permissions added")
           PY
 
       - name: Get dependencies
         run: flutter pub get
 
-      - name: Check Dart code
+      - name: Analyze Dart code
         run: flutter analyze
 
-      - name: Build release APK
+      - name: Build APK
         run: flutter build apk --release
 
       - name: Upload APK
