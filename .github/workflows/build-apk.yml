@@ -31,6 +31,39 @@ jobs:
       - name: Generate Android project files
         run: flutter create --platforms=android --project-name blueshare .
 
+      - name: Install Android API 36
+        run: sdkmanager "platforms;android-36"
+
+      - name: Set Android compile SDK to 36
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          kotlin = Path("android/app/build.gradle.kts")
+          groovy = Path("android/app/build.gradle")
+
+          if kotlin.exists():
+              path = kotlin
+              pattern = r'(?m)^\s*compileSdk\s*=.*$'
+              replacement = '    compileSdk = 36'
+          elif groovy.exists():
+              path = groovy
+              pattern = r'(?m)^\s*compileSdk(?:Version)?\s+.*$'
+              replacement = '    compileSdkVersion 36'
+          else:
+              raise SystemExit("Android app Gradle file not found")
+
+          content = path.read_text()
+          content, count = re.subn(pattern, replacement, content, count=1)
+
+          if count == 0:
+              raise SystemExit("Could not find compileSdk setting")
+
+          path.write_text(content)
+          print("Android compileSdk set to 36")
+          PY
+
       - name: Get dependencies
         run: flutter pub get
 
