@@ -32,7 +32,18 @@ jobs:
         run: flutter create --platforms=android --project-name blueshare .
 
       - name: Install Android API 36
-        run: sdkmanager "platforms;android-36"
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -f "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -n 1)"
+          fi
+          if [ -z "$SDKMANAGER" ] || [ ! -f "$SDKMANAGER" ]; then
+            echo "ERROR: Android sdkmanager was not found"
+            find "$ANDROID_HOME" -name sdkmanager -type f 2>/dev/null | head -n 20
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses
+          "$SDKMANAGER" "platforms;android-36"
 
       - name: Set Android compile SDK to 36
         run: |
