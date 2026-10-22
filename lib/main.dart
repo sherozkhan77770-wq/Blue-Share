@@ -1,6 +1,5 @@
 
 import 'package:flutter/material.dart';
-import 'package:nearby_connections/nearby_connections.dart';
 
 void main() {
   runApp(const BlueShareApp());
@@ -24,10 +23,6 @@ class BlueShareApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(
           seedColor: blue,
           brightness: Brightness.dark,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: background,
-          foregroundColor: Colors.white,
         ),
         useMaterial3: true,
       ),
@@ -66,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void addMessage() {
     final value = messageController.text.trim();
     if (value.isEmpty) return;
+
     setState(() {
       messages.add(value);
       messageController.clear();
@@ -241,15 +237,22 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.bluetooth_searching, size: 64, color: blue),
+            const Icon(
+              Icons.bluetooth_searching,
+              size: 64,
+              color: blue,
+            ),
             const SizedBox(height: 16),
             const Text(
               'Connect nearby devices',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 8),
             const Text(
-              'The real device discovery and connection '
+              'Real device discovery and connection '
               'will be implemented in the next step.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white70),
