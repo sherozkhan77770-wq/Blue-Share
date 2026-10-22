@@ -1,17 +1,18 @@
+
 name: blueshare
 description: "BlueShare offline chat and file sharing app"
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: '>=3.4.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
   nearby_connections: ^4.3.0
   permission_handler: ^11.3.1
-  file_picker: ^8.0.0
+  file_picker: ^10.3.10
   path_provider: ^2.1.2
   cupertino_icons: ^1.0.6
 
