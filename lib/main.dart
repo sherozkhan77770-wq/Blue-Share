@@ -498,7 +498,7 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Padding(
             padding: EdgeInsets.all(30),
             child: Column(
-              children: [
+              children: const [
                 Icon(
                   Icons.call_outlined,
                   size: 60,
