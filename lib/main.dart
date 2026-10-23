@@ -38,6 +38,14 @@ class BlueShareApp extends StatelessWidget {
           backgroundColor: background,
           foregroundColor: Colors.white,
         ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: panel,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(24),
+            borderSide: BorderSide.none,
+          ),
+        ),
       ),
       home: const OfflineChatScreen(),
     );
@@ -80,7 +88,6 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
   final Set<String> _connected = {};
   final List<ChatMessage> _messages = [];
 
-  // Incoming file transfer information.
   final Map<int, String> _incomingNames = {};
   final Map<int, String> _incomingPaths = {};
   final Set<int> _completedFiles = {};
@@ -128,6 +135,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         );
         return false;
       }
+
       return true;
     } catch (e) {
       _showMessage('Permission error: $e');
@@ -137,6 +145,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
 
   Future<void> _startAdvertising() async {
     if (_busy || _advertising) return;
+
     setState(() => _busy = true);
 
     try {
@@ -152,6 +161,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       );
 
       if (!mounted) return;
+
       setState(() {
         _advertising = started;
         _status = started
@@ -167,6 +177,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
 
   Future<void> _startDiscovery() async {
     if (_busy || _discovering) return;
+
     setState(() => _busy = true);
 
     try {
@@ -178,6 +189,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         serviceId: serviceId,
         onEndpointFound: (id, name, foundService) {
           if (!mounted || foundService != serviceId) return;
+
           setState(() {
             _discovered[id] = name;
             _endpointNames[id] = name;
@@ -191,6 +203,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       );
 
       if (!mounted) return;
+
       setState(() {
         _discovering = started;
         _status = started
@@ -243,11 +256,13 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () =>
+                Navigator.pop(dialogContext, false),
             child: const Text('Reject'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () =>
+                Navigator.pop(dialogContext, true),
             child: const Text('Accept'),
           ),
         ],
@@ -295,6 +310,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
 
   void _onDisconnected(String id) {
     if (!mounted) return;
+
     setState(() {
       _connected.remove(id);
       _status = 'Phone disconnected';
@@ -302,7 +318,8 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
   }
 
   void _onPayloadReceived(String endpointId, Payload payload) {
-    if (payload.type == PayloadType.BYTES && payload.bytes != null) {
+    if (payload.type == PayloadType.BYTES &&
+        payload.bytes != null) {
       try {
         final data = jsonDecode(
           utf8.decode(payload.bytes!),
@@ -310,7 +327,8 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
 
         if (data['type'] == 'chat') {
           final text = (data['text'] ?? '').toString();
-          final sender = (data['sender'] ?? 'Nearby phone').toString();
+          final sender =
+              (data['sender'] ?? 'Nearby phone').toString();
 
           if (text.isNotEmpty && mounted) {
             setState(() {
@@ -443,6 +461,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       }
 
       if (!mounted) return;
+
       setState(() {
         _messages.add(
           ChatMessage(
@@ -454,6 +473,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         );
         _status = 'Message sent';
       });
+
       _messageController.clear();
     } catch (e) {
       _showMessage('Message sending error: $e');
@@ -530,6 +550,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
           );
           _status = 'File transfer started';
         });
+
         _showMessage('File sending started: ${file.name}');
       }
     } catch (e) {
@@ -553,7 +574,10 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.video_library, color: blue),
+              leading: const Icon(
+                Icons.video_library,
+                color: blue,
+              ),
               title: const Text('Send video'),
               onTap: () {
                 Navigator.pop(sheetContext);
@@ -561,7 +585,10 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.insert_drive_file, color: blue),
+              leading: const Icon(
+                Icons.insert_drive_file,
+                color: blue,
+              ),
               title: const Text('Send any file'),
               onTap: () {
                 Navigator.pop(sheetContext);
@@ -582,6 +609,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     }
 
     if (!mounted) return;
+
     setState(() {
       _connected.clear();
       _discovered.clear();
@@ -595,6 +623,11 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     _nearby.stopDiscovery();
     _nearby.stopAdvertising();
     super.dispose();
+  }
+
+  String _formatTime(DateTime time) {
+    return '${time.hour.toString().padLeft(2, '0')}:'
+        '${time.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -629,7 +662,9 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
               decoration: BoxDecoration(
                 color: panel,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF26364D)),
+                border: Border.all(
+                  color: const Color(0xFF26364D),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -698,18 +733,4 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
                       ),
                       title: Text(entry.value),
                       subtitle: Text(
-                        connected ? 'Connected' : 'Tap to connect',
-                      ),
-                      trailing: connected
-                          ? const Icon(
-                              Icons.check_circle,
-                              color: Colors.lightGreenAccent,
-                            )
-                          : IconButton(
-                              onPressed: () => _connectTo(entry.key),
-                              icon: const Icon(Icons.link, color: blue),
-                            ),
-                    );
-                  }).toList(),
-                ),
-          
+                        connected ? 'Connected' : 'T
