@@ -26,7 +26,7 @@ class BlueShareApp extends StatelessWidget {
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: bg,
-        colorScheme: ColorScheme.dark(primary: blue),
+        colorScheme: const ColorScheme.dark(primary: blue),
         appBarTheme: const AppBarTheme(backgroundColor: bg),
         useMaterial3: true,
       ),
