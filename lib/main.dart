@@ -1,4 +1,4 @@
-
+   
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -14,10 +14,10 @@ void main() {
   runApp(const BlueShareApp());
 }
 
-const blue = Color(0xFF1687FF);
-const background = Color(0xFF080D18);
-const panel = Color(0xFF151D2D);
-const serviceId = 'com.example.blue_share';
+const Color blue = Color(0xFF1687FF);
+const Color background = Color(0xFF080D18);
+const Color panel = Color(0xFF151D2D);
+const String serviceId = 'com.example.blue_share';
 
 class BlueShareApp extends StatelessWidget {
   const BlueShareApp({super.key});
@@ -34,18 +34,6 @@ class BlueShareApp extends StatelessWidget {
           seedColor: blue,
           brightness: Brightness.dark,
         ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: background,
-          foregroundColor: Colors.white,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: panel,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(24),
-            borderSide: BorderSide.none,
-          ),
-        ),
       ),
       home: const OfflineChatScreen(),
     );
@@ -59,7 +47,7 @@ class ChatMessage {
   final DateTime time;
   final bool isFile;
 
-  ChatMessage({
+  const ChatMessage({
     required this.text,
     required this.sender,
     required this.isMine,
@@ -88,28 +76,28 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
   final Set<String> _connected = {};
   final List<ChatMessage> _messages = [];
 
-  final Map<int, String> _incomingNames = {};
-  final Map<int, String> _incomingPaths = {};
-  final Set<int> _completedFiles = {};
+  final Map<int, String> _fileNames = {};
+  final Map<int, String> _filePaths = {};
+  final Set<int> _finishedFiles = {};
   final Set<int> _savingFiles = {};
-
-  final Strategy _strategy = Strategy.P2P_CLUSTER;
 
   bool _advertising = false;
   bool _discovering = false;
   bool _busy = false;
   String _status = 'Connect to another nearby phone';
 
-  void _showMessage(String text) {
+  final Strategy _strategy = Strategy.P2P_CLUSTER;
+
+  void _notify(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
+      SnackBar(content: Text(message)),
     );
   }
 
-  Future<bool> _requestPermissions() async {
+  Future<bool> _permissions() async {
     try {
-      final results = await <Permission>[
+      final result = await <Permission>[
         Permission.locationWhenInUse,
         Permission.bluetooth,
         Permission.bluetoothAdvertise,
@@ -125,20 +113,15 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         Permission.bluetoothScan,
       ];
 
-      final denied = required.any(
-        (permission) => results[permission]?.isGranted != true,
-      );
-
-      if (denied) {
-        _showMessage(
-          'Bluetooth aur nearby permissions allow karein.',
-        );
-        return false;
+      for (final permission in required) {
+        if (result[permission]?.isGranted != true) {
+          _notify('Bluetooth aur nearby permissions allow karein.');
+          return false;
+        }
       }
-
       return true;
     } catch (e) {
-      _showMessage('Permission error: $e');
+      _notify('Permission error: $e');
       return false;
     }
   }
@@ -147,9 +130,8 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     if (_busy || _advertising) return;
 
     setState(() => _busy = true);
-
     try {
-      if (!await _requestPermissions()) return;
+      if (!await _permissions()) return;
 
       final started = await _nearby.startAdvertising(
         _userName,
@@ -161,15 +143,14 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       );
 
       if (!mounted) return;
-
       setState(() {
         _advertising = started;
         _status = started
-            ? 'Phone is visible to nearby devices'
+            ? 'Your phone is visible'
             : 'Could not make phone visible';
       });
     } catch (e) {
-      _showMessage('Advertising error: $e');
+      _notify('Advertising error: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -179,9 +160,8 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     if (_busy || _discovering) return;
 
     setState(() => _busy = true);
-
     try {
-      if (!await _requestPermissions()) return;
+      if (!await _permissions()) return;
 
       final started = await _nearby.startDiscovery(
         _userName,
@@ -189,11 +169,10 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         serviceId: serviceId,
         onEndpointFound: (id, name, foundService) {
           if (!mounted || foundService != serviceId) return;
-
           setState(() {
             _discovered[id] = name;
             _endpointNames[id] = name;
-            _status = 'Found nearby phone: $name';
+            _status = 'Found: $name';
           });
         },
         onEndpointLost: (id) {
@@ -203,7 +182,6 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       );
 
       if (!mounted) return;
-
       setState(() {
         _discovering = started;
         _status = started
@@ -211,7 +189,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
             : 'Could not start search';
       });
     } catch (e) {
-      _showMessage('Search error: $e');
+      _notify('Discovery error: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -226,9 +204,9 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         onConnectionResult: _onConnectionResult,
         onDisconnected: _onDisconnected,
       );
-      _showMessage('Connection request sent');
+      _notify('Connection request sent');
     } catch (e) {
-      _showMessage('Connection error: $e');
+      _notify('Connection error: $e');
     }
   }
 
@@ -252,7 +230,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         content: Text(
           '${info.endpointName} wants to connect.\n\n'
           'Verification code: ${info.authenticationToken}\n\n'
-          'Accept only if you trust this phone.',
+          'Accept only if you trust this device.',
         ),
         actions: [
           TextButton(
@@ -283,7 +261,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         onPayloadTransferUpdate: _onPayloadTransferUpdate,
       );
     } catch (e) {
-      _showMessage('Could not accept connection: $e');
+      _notify('Could not accept connection: $e');
     }
   }
 
@@ -299,18 +277,17 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         _status = 'Connected to ${_endpointNames[id] ?? 'phone'}';
       } else {
         _connected.remove(id);
-        _status = 'Connection result: $status';
+        _status = 'Connection status: $status';
       }
     });
 
-    _showMessage(
+    _notify(
       connected ? 'Phone connected!' : 'Connection: $status',
     );
   }
 
   void _onDisconnected(String id) {
     if (!mounted) return;
-
     setState(() {
       _connected.remove(id);
       _status = 'Phone disconnected';
@@ -321,14 +298,16 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     if (payload.type == PayloadType.BYTES &&
         payload.bytes != null) {
       try {
-        final data = jsonDecode(
+        final decoded = jsonDecode(
           utf8.decode(payload.bytes!),
-        ) as Map<String, dynamic>;
+        );
 
-        if (data['type'] == 'chat') {
-          final text = (data['text'] ?? '').toString();
+        if (decoded is! Map<String, dynamic>) return;
+
+        if (decoded['type'] == 'chat') {
+          final text = (decoded['text'] ?? '').toString();
           final sender =
-              (data['sender'] ?? 'Nearby phone').toString();
+              (decoded['sender'] ?? 'Nearby phone').toString();
 
           if (text.isNotEmpty && mounted) {
             setState(() {
@@ -343,17 +322,17 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
               _status = 'Message received';
             });
           }
-        } else if (data['type'] == 'file_meta') {
-          final id = data['payloadId'] as int?;
-          final name = data['name']?.toString();
+        } else if (decoded['type'] == 'file_meta') {
+          final id = decoded['payloadId'] as int?;
+          final name = decoded['name']?.toString();
 
           if (id != null && name != null && name.isNotEmpty) {
-            _incomingNames[id] = name;
-            _saveIncomingFileIfReady(id);
+            _fileNames[id] = name;
+            _saveFileWhenReady(id);
           }
         }
       } catch (_) {
-        // Ignore unknown byte payloads.
+        _notify('Could not read incoming message.');
       }
       return;
     }
@@ -362,8 +341,8 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       final source = payload.uri ?? payload.filePath;
       if (source == null || source.isEmpty) return;
 
-      _incomingPaths[payload.id] = source;
-      _saveIncomingFileIfReady(payload.id);
+      _filePaths[payload.id] = source;
+      _saveFileWhenReady(payload.id);
     }
   }
 
@@ -372,67 +351,62 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     PayloadTransferUpdate update,
   ) {
     if (update.status == PayloadStatus.SUCCESS) {
-      _completedFiles.add(update.id);
-      _saveIncomingFileIfReady(update.id);
+      _finishedFiles.add(update.id);
+      _saveFileWhenReady(update.id);
     } else if (update.status == PayloadStatus.FAILURE) {
-      _showMessage('File transfer failed');
+      _notify('File transfer failed.');
     }
   }
 
-  Future<void> _saveIncomingFileIfReady(int id) async {
-    if (!_completedFiles.contains(id) ||
-        !_incomingNames.containsKey(id) ||
-        !_incomingPaths.containsKey(id) ||
+  Future<void> _saveFileWhenReady(int id) async {
+    if (!_finishedFiles.contains(id) ||
+        !_fileNames.containsKey(id) ||
+        !_filePaths.containsKey(id) ||
         _savingFiles.contains(id)) {
       return;
     }
 
     _savingFiles.add(id);
-
     try {
-      final directory = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
+      final directory = await getApplicationDocumentsDirectory();
 
-      final originalName = _incomingNames[id]!;
-      final safeName = originalName
+      final name = _fileNames[id]!
           .split(RegExp(r'[/\\]'))
           .last
           .replaceAll(RegExp(r'[<>:"|?*]'), '_');
 
       final destination =
-          '${directory.path}/${DateTime.now().millisecondsSinceEpoch}_$safeName';
+          '${directory.path}/${DateTime.now().millisecondsSinceEpoch}_$name';
 
-      final copied = await _nearby.copyFileAndDeleteOriginal(
-        _incomingPaths[id]!,
+      final saved = await _nearby.copyFileAndDeleteOriginal(
+        _filePaths[id]!,
         destination,
       );
 
-      if (copied && mounted) {
+      if (saved && mounted) {
         setState(() {
           _messages.add(
             ChatMessage(
-              text: 'Received file: $safeName\nSaved in app storage.',
-              sender: _endpointNames.values.isNotEmpty
-                  ? _endpointNames.values.first
-                  : 'Nearby phone',
+              text: 'Received file: $name\nSaved in app storage.',
+              sender: 'Nearby phone',
               isMine: false,
               time: DateTime.now(),
               isFile: true,
             ),
           );
-          _status = 'File received and saved';
+          _status = 'File received';
         });
-        _showMessage('File received: $safeName');
+        _notify('File saved inside app storage.');
       } else {
-        _showMessage('File received, but saving failed');
+        _notify('Could not save the received file.');
       }
     } catch (e) {
-      _showMessage('Could not save received file: $e');
+      _notify('File saving error: $e');
     } finally {
       _savingFiles.remove(id);
-      _incomingPaths.remove(id);
-      _incomingNames.remove(id);
-      _completedFiles.remove(id);
+      _fileNames.remove(id);
+      _filePaths.remove(id);
+      _finishedFiles.remove(id);
     }
   }
 
@@ -441,7 +415,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     if (text.isEmpty) return;
 
     if (_connected.isEmpty) {
-      _showMessage('Connect to another phone first');
+      _notify('Connect to another phone first.');
       return;
     }
 
@@ -461,7 +435,6 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       }
 
       if (!mounted) return;
-
       setState(() {
         _messages.add(
           ChatMessage(
@@ -473,16 +446,15 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         );
         _status = 'Message sent';
       });
-
       _messageController.clear();
     } catch (e) {
-      _showMessage('Message sending error: $e');
+      _notify('Message sending error: $e');
     }
   }
 
-  Future<void> _chooseAndSendFile(FileType type) async {
+  Future<void> _pickAndSendFile(FileType type) async {
     if (_connected.isEmpty) {
-      _showMessage('File bhejne se pehle phone connect karein');
+      _notify('Connect to another phone before sending a file.');
       return;
     }
 
@@ -498,26 +470,23 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
       final path = file.path;
 
       if (path == null || !File(path).existsSync()) {
-        _showMessage('Selected file ka path nahi mila');
+        _notify('Could not access the selected file.');
         return;
       }
 
       if (file.size > 500 * 1024 * 1024) {
-        _showMessage('Filhaal 500 MB se chhoti file select karein');
+        _notify('Please choose a file smaller than 500 MB.');
         return;
       }
 
-      var sentToAnyDevice = false;
+      var sent = false;
 
-      for (final endpointId in _connected.toList()) {
+      for (final id in _connected.toList()) {
         try {
-          final payloadId = await _nearby.sendFilePayload(
-            endpointId,
-            path,
-          );
+          final payloadId = await _nearby.sendFilePayload(id, path);
 
           await _nearby.sendBytesPayload(
-            endpointId,
+            id,
             Uint8List.fromList(
               utf8.encode(
                 jsonEncode({
@@ -528,33 +497,29 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
               ),
             ),
           );
-
-          sentToAnyDevice = true;
+          sent = true;
         } catch (e) {
-          _showMessage('Could not send to one phone: $e');
+          _notify('Could not send to one device: $e');
         }
       }
 
-      if (!mounted) return;
+      if (!mounted || !sent) return;
 
-      if (sentToAnyDevice) {
-        setState(() {
-          _messages.add(
-            ChatMessage(
-              text: 'File sent: ${file.name}',
-              sender: _userName,
-              isMine: true,
-              time: DateTime.now(),
-              isFile: true,
-            ),
-          );
-          _status = 'File transfer started';
-        });
-
-        _showMessage('File sending started: ${file.name}');
-      }
+      setState(() {
+        _messages.add(
+          ChatMessage(
+            text: 'File sent: ${file.name}',
+            sender: _userName,
+            isMine: true,
+            time: DateTime.now(),
+            isFile: true,
+          ),
+        );
+        _status = 'File transfer started';
+      });
+      _notify('Sending ${file.name}');
     } catch (e) {
-      _showMessage('File selection/sending error: $e');
+      _notify('File error: $e');
     }
   }
 
@@ -570,29 +535,23 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
               title: const Text('Send photo'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                _chooseAndSendFile(FileType.image);
+                _pickAndSendFile(FileType.image);
               },
             ),
             ListTile(
-              leading: const Icon(
-                Icons.video_library,
-                color: blue,
-              ),
+              leading: const Icon(Icons.video_library, color: blue),
               title: const Text('Send video'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                _chooseAndSendFile(FileType.video);
+                _pickAndSendFile(FileType.video);
               },
             ),
             ListTile(
-              leading: const Icon(
-                Icons.insert_drive_file,
-                color: blue,
-              ),
+              leading: const Icon(Icons.insert_drive_file, color: blue),
               title: const Text('Send any file'),
               onTap: () {
                 Navigator.pop(sheetContext);
-                _chooseAndSendFile(FileType.any);
+                _pickAndSendFile(FileType.any);
               },
             ),
           ],
@@ -605,16 +564,21 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     try {
       await _nearby.stopAllEndpoints();
     } catch (e) {
-      _showMessage('Disconnect error: $e');
+      _notify('Disconnect error: $e');
     }
 
     if (!mounted) return;
-
     setState(() {
       _connected.clear();
       _discovered.clear();
       _status = 'Disconnected';
     });
+  }
+
+  String _formatTime(DateTime time) {
+    final hour = time.hour.toString().padLeft(2, '0');
+    final minute = time.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
   @override
@@ -623,11 +587,6 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
     _nearby.stopDiscovery();
     _nearby.stopAdvertising();
     super.dispose();
-  }
-
-  String _formatTime(DateTime time) {
-    return '${time.hour.toString().padLeft(2, '0')}:'
-        '${time.minute.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -662,9 +621,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
               decoration: BoxDecoration(
                 color: panel,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: const Color(0xFF26364D),
-                ),
+                border: Border.all(color: const Color(0xFF26364D)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -705,12 +662,7 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    'Connected phones: ${_connected.length}',
-                    style: const TextStyle(
-                      color: Colors.lightGreenAccent,
-                    ),
-                  ),
+                  Text('Connected phones: ${_connected.length}'),
                 ],
               ),
             ),
@@ -723,8 +675,8 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Column(
-                  children: _discovered.entries.map((entry) {
-                    final connected = _connected.contains(entry.key);
+                  children: _discovered.entries.map<Widget>((entry) {
+                    final isConnected = _connected.contains(entry.key);
 
                     return ListTile(
                       leading: const CircleAvatar(
@@ -733,4 +685,33 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
                       ),
                       title: Text(entry.value),
                       subtitle: Text(
-                        connected ? 'Connected' : 'T
+                        isConnected ? 'Connected' : 'Tap to connect',
+                      ),
+                      trailing: isConnected
+                          ? const Icon(
+                              Icons.check_circle,
+                              color: Colors.lightGreenAccent,
+                            )
+                          : IconButton(
+                              onPressed: () => _connectTo(entry.key),
+                              icon: const Icon(Icons.link, color: blue),
+                            ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            Expanded(
+              child: _messages.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'Connect a nearby phone to start chatting.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: _messages.l
