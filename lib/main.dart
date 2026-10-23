@@ -496,8 +496,8 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 16),
         const Center(
           child: Padding(
-            padding: const EdgeInsets.all(30),
-            child: const Column(
+            padding: EdgeInsets.all(30),
+            child: Column(
               children: [
                 Icon(
                   Icons.call_outlined,
