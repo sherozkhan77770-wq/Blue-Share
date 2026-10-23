@@ -1,6 +1,5 @@
 
 import 'dart:convert';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -11,437 +10,619 @@ void main() {
   runApp(const BlueShareApp());
 }
 
+const Color blue = Color(0xFF1687FF);
+const Color background = Color(0xFF080D16);
+const Color panel = Color(0xFF111A29);
+const String serviceId = 'com.blueshare.offline';
+
+class ChatMessage {
+  final String text;
+  final bool isMine;
+  final DateTime time;
+
+  ChatMessage({
+    required this.text,
+    required this.isMine,
+    required this.time,
+  });
+}
+
 class BlueShareApp extends StatelessWidget {
   const BlueShareApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'BlueShare',
       debugShowCheckedModeBanner: false,
+      title: 'BlueShare',
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF080D18),
+        scaffoldBackgroundColor: background,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1687FF),
+          seedColor: blue,
           brightness: Brightness.dark,
         ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF080D18),
-          foregroundColor: Colors.white,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xFF151D2D),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(16),
-            borderSide: BorderSide.none,
-          ),
-        ),
+        useMaterial3: true,
       ),
-      home: const OfflineChatScreen(),
+      home: const HomeScreen(),
     );
   }
 }
 
-class ChatMessage {
-  final String text;
-  final String sender;
-  final bool isMine;
-  final DateTime time;
-
-  ChatMessage({
-    required this.text,
-    required this.sender,
-    required this.isMine,
-    required this.time,
-  });
-}
-
-class OfflineChatScreen extends StatefulWidget {
-  const OfflineChatScreen({super.key});
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
 
   @override
-  State<OfflineChatScreen> createState() => _OfflineChatScreenState();
+  State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _OfflineChatScreenState extends State<OfflineChatScreen> {
-  final Nearby _nearby = Nearby();
-  final TextEditingController _messageController = TextEditingController();
+class _HomeScreenState extends State<HomeScreen> {
+  int selectedTab = 0;
+  bool busy = false;
+  String connectionStatus = 'Not connected';
 
-  final String _userName =
-      'BlueShare-${Random().nextInt(9000) + 1000}';
+  final TextEditingController nameController =
+      TextEditingController(text: 'BlueShare user');
+  final TextEditingController messageController =
+      TextEditingController();
 
-  final Map<String, String> _discovered = {};
-  final Map<String, String> _endpointNames = {};
-  final Set<String> _connected = {};
-  final List<ChatMessage> _messages = [];
+  final List<ChatMessage> messages = [];
+  final Map<String, String> discoveredDevices = {};
+  final Set<String> connectedDevices = {};
 
-  final Strategy _strategy = Strategy.P2P_CLUSTER;
+  @override
+  void dispose() {
+    nameController.dispose();
+    messageController.dispose();
+    Nearby().stopDiscovery();
+    Nearby().stopAdvertising();
+    super.dispose();
+  }
 
-  bool _advertising = false;
-  bool _discovering = false;
-  bool _busy = false;
-  String _status = 'Connect to another nearby phone';
-
-  static const String _serviceId = 'com.example.blue_share';
-
-  void _showMessage(String message) {
+  void showMessage(String text) {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(content: Text(text)),
     );
   }
 
-  Future<bool> _requestPermissions() async {
+  Future<bool> requestPermissions() async {
     try {
       final permissions = <Permission>[
-        Permission.locationWhenInUse,
-        Permission.bluetooth,
+        Permission.bluetoothScan,
         Permission.bluetoothAdvertise,
         Permission.bluetoothConnect,
-        Permission.bluetoothScan,
+        Permission.locationWhenInUse,
         Permission.nearbyWifiDevices,
       ];
 
       final results = await permissions.request();
-      final denied = results.entries
-          .where((entry) => entry.value.isDenied || entry.value.isPermanentlyDenied)
-          .map((entry) => entry.key.toString())
-          .toList();
 
-      if (denied.isNotEmpty) {
-        _showMessage(
-          'Some permissions are missing. Allow nearby/Bluetooth permissions in Settings.',
-        );
-        return false;
+      final bluetoothGranted =
+          results[Permission.bluetoothScan]?.isGranted == true &&
+          results[Permission.bluetoothAdvertise]?.isGranted == true &&
+          results[Permission.bluetoothConnect]?.isGranted == true;
+
+      final locationGranted =
+          results[Permission.locationWhenInUse]?.isGranted == true;
+
+      final wifiGranted =
+          results[Permission.nearbyWifiDevices]?.isGranted == true;
+
+      if (bluetoothGranted || locationGranted || wifiGranted) {
+        return true;
       }
 
-      return true;
+      showMessage(
+        'Bluetooth/Nearby permissions allow karein, phir dobara try karein.',
+      );
+      return false;
     } catch (e) {
-      _showMessage('Permission error: $e');
+      showMessage('Permission error: $e');
       return false;
     }
   }
 
-  Future<void> _startAdvertising() async {
-    if (_busy || _advertising) return;
-    _busy = true;
+  void handleConnection(String endpointId) {
+    Nearby().acceptConnection(
+      endpointId,
+      onPayLoadRecieved: (id, payload) {
+        if (payload.type != PayloadType.BYTES ||
+            payload.bytes == null) {
+          return;
+        }
 
-    try {
-      if (!await _requestPermissions()) return;
+        try {
+          final decoded = utf8.decode(payload.bytes!);
+          final data = jsonDecode(decoded) as Map<String, dynamic>;
 
-      final started = await _nearby.startAdvertising(
-        _userName,
-        _strategy,
-        serviceId: _serviceId,
-        onConnectionInitiated: _onConnectionInitiated,
-        onConnectionResult: _onConnectionResult,
-        onDisconnected: _onDisconnected,
-      );
+          if (data['type'] == 'message') {
+            final text = data['text'] as String? ?? '';
 
-      if (!mounted) return;
-      setState(() {
-        _advertising = started;
-        _status = started
-            ? 'Your phone is visible to nearby devices'
-            : 'Could not start advertising';
-      });
-    } catch (e) {
-      _showMessage('Could not make your phone discoverable: $e');
-    } finally {
-      _busy = false;
-    }
-  }
-
-  Future<void> _startDiscovery() async {
-    if (_busy || _discovering) return;
-    _busy = true;
-
-    try {
-      if (!await _requestPermissions()) return;
-
-      final started = await _nearby.startDiscovery(
-        _userName,
-        _strategy,
-        serviceId: _serviceId,
-        onEndpointFound: (id, name, serviceId) {
-          if (!mounted || id == _userName) return;
-          setState(() {
-            _discovered[id] = name;
-            _endpointNames[id] = name;
-            _status = 'Found nearby device: $name';
-          });
-        },
-        onEndpointLost: (id) {
-          if (!mounted) return;
-          setState(() {
-            _discovered.remove(id);
-          });
-        },
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _discovering = started;
-        _status = started
-            ? 'Searching for nearby BlueShare phones…'
-            : 'Could not start device search';
-      });
-    } catch (e) {
-      _showMessage('Device search failed: $e');
-    } finally {
-      _busy = false;
-    }
-  }
-
-  Future<void> _stopDiscovery() async {
-    try {
-      await _nearby.stopDiscovery();
-      if (!mounted) return;
-      setState(() {
-        _discovering = false;
-        _status = 'Device search stopped';
-      });
-    } catch (e) {
-      _showMessage('Could not stop search: $e');
-    }
-  }
-
-  Future<void> _stopAdvertising() async {
-    try {
-      await _nearby.stopAdvertising();
-      if (!mounted) return;
-      setState(() {
-        _advertising = false;
-        _status = 'Your phone is no longer advertising';
-      });
-    } catch (e) {
-      _showMessage('Could not stop advertising: $e');
-    }
-  }
-
-  Future<void> _connectTo(String id) async {
-    try {
-      await _nearby.requestConnection(
-        _userName,
-        id,
-        onConnectionInitiated: _onConnectionInitiated,
-        onConnectionResult: _onConnectionResult,
-        onDisconnected: _onDisconnected,
-      );
-      _showMessage('Connection request sent');
-    } catch (e) {
-      _showMessage('Could not request connection: $e');
-    }
-  }
-
-  Future<void> _onConnectionInitiated(
-    String id,
-    ConnectionInfo info,
-  ) async {
-    _endpointNames[id] = info.endpointName;
-
-    if (!mounted) {
-      await _nearby.rejectConnection(id);
-      return;
-    }
-
-    final accepted = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF151D2D),
-          title: const Text('Connection request'),
-          content: Text(
-            '${info.endpointName} wants to connect.\n\n'
-            'Verification code: ${info.authenticationToken}\n\n'
-            'Only accept if you trust the other phone.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Reject'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Accept'),
-            ),
-          ],
-        );
+            if (text.isNotEmpty && mounted) {
+              setState(() {
+                messages.add(
+                  ChatMessage(
+                    text: text,
+                    isMine: false,
+                    time: DateTime.now(),
+                  ),
+                );
+              });
+            }
+          }
+        } catch (_) {
+          showMessage('Received message read nahi ho saka.');
+        }
       },
+      onPayloadTransferUpdate: (id, update) {},
     );
+  }
 
-    if (accepted != true) {
-      try {
-        await _nearby.rejectConnection(id);
-      } catch (_) {}
-      return;
-    }
+  Future<void> startAdvertising() async {
+    if (!await requestPermissions()) return;
+
+    setState(() {
+      busy = true;
+      connectionStatus = 'Making phone visible...';
+    });
 
     try {
-      await _nearby.acceptConnection(
-        id,
-        onPayLoadRecieved: _onPayloadReceived,
-        onPayloadTransferUpdate: (endpointId, update) {},
+      await Nearby().stopDiscovery();
+
+      final started = await Nearby().startAdvertising(
+        nameController.text.trim().isEmpty
+            ? 'BlueShare user'
+            : nameController.text.trim(),
+        Strategy.P2P_CLUSTER,
+        onConnectionInitiated: (id, info) {
+          handleConnection(id);
+        },
+        onConnectionResult: (id, status) {
+          if (!mounted) return;
+
+          setState(() {
+            if (status == Status.CONNECTED) {
+              connectedDevices.add(id);
+              connectionStatus = 'Phone connected';
+            } else {
+              connectionStatus = 'Connection result: $status';
+            }
+          });
+        },
+        onDisconnected: (id) {
+          if (!mounted) return;
+
+          setState(() {
+            connectedDevices.remove(id);
+            connectionStatus = 'Phone disconnected';
+          });
+        },
+        serviceId: serviceId,
       );
 
       if (mounted) {
         setState(() {
-          _status = 'Accepted connection with ${info.endpointName}';
+          connectionStatus = started
+              ? 'Phone visible — waiting for connection'
+              : 'Could not make phone visible';
         });
       }
     } catch (e) {
-      _showMessage('Could not accept connection: $e');
-    }
-  }
-
-  void _onConnectionResult(String id, Status status) {
-    if (!mounted) return;
-
-    final statusText = status.toString();
-    final connected = statusText.toUpperCase().contains('CONNECTED');
-
-    setState(() {
-      if (connected) {
-        _connected.add(id);
-        _status = 'Connected to ${_endpointNames[id] ?? 'nearby phone'}';
-      } else {
-        _connected.remove(id);
-        _status = 'Connection result: $statusText';
+      showMessage('Advertising error: $e');
+      if (mounted) {
+        setState(() {
+          connectionStatus = 'Could not make phone visible';
+        });
       }
-    });
-
-    _showMessage(
-      connected ? 'Phone connected successfully!' : 'Connection: $statusText',
-    );
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
   }
 
-  void _onDisconnected(String id) {
-    if (!mounted) return;
+  Future<void> startDiscovery() async {
+    if (!await requestPermissions()) return;
 
     setState(() {
-      _connected.remove(id);
-      _status = '${_endpointNames[id] ?? 'Phone'} disconnected';
+      busy = true;
+      discoveredDevices.clear();
+      connectionStatus = 'Searching for nearby phones...';
     });
-
-    _showMessage('Device disconnected');
-  }
-
-  void _onPayloadReceived(String id, Payload payload) {
-    if (payload.type != PayloadType.BYTES || payload.bytes == null) {
-      return;
-    }
 
     try {
-      final decoded = utf8.decode(payload.bytes!);
-      final data = jsonDecode(decoded) as Map<String, dynamic>;
+      await Nearby().stopAdvertising();
 
-      if (data['type'] != 'chat') return;
+      final started = await Nearby().startDiscovery(
+        nameController.text.trim().isEmpty
+            ? 'BlueShare user'
+            : nameController.text.trim(),
+        Strategy.P2P_CLUSTER,
+        onEndpointFound: (id, name, foundServiceId) {
+          if (!mounted || foundServiceId != serviceId) return;
 
-      final sender = (data['sender'] ?? 'Nearby phone').toString();
-      final text = (data['text'] ?? '').toString();
+          setState(() {
+            discoveredDevices[id] = name;
+          });
+        },
+        onEndpointLost: (id) {
+          if (!mounted || id == null) return;
 
-      if (text.isEmpty || !mounted) return;
+          setState(() {
+            discoveredDevices.remove(id);
+          });
+        },
+        serviceId: serviceId,
+      );
 
-      setState(() {
-        _messages.add(
-          ChatMessage(
-            text: text,
-            sender: sender,
-            isMine: false,
-            time: DateTime.now(),
-          ),
-        );
-        _status = 'Message received from $sender';
-      });
-    } catch (_) {
-      // Ignore payloads that are not BlueShare chat messages.
+      if (mounted) {
+        setState(() {
+          connectionStatus = started
+              ? 'Searching for nearby phones...'
+              : 'Could not start search';
+        });
+      }
+    } catch (e) {
+      showMessage('Discovery error: $e');
+      if (mounted) {
+        setState(() {
+          connectionStatus = 'Search failed';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
-  Future<void> _sendMessage() async {
-    final text = _messageController.text.trim();
+  Future<void> connectToDevice(String endpointId) async {
+    if (!await requestPermissions()) return;
+
+    setState(() {
+      busy = true;
+      connectionStatus = 'Connecting...';
+    });
+
+    try {
+      await Nearby().requestConnection(
+        nameController.text.trim().isEmpty
+            ? 'BlueShare user'
+            : nameController.text.trim(),
+        endpointId,
+        onConnectionInitiated: (id, info) {
+          handleConnection(id);
+        },
+        onConnectionResult: (id, status) {
+          if (!mounted) return;
+
+          setState(() {
+            if (status == Status.CONNECTED) {
+              connectedDevices.add(id);
+              connectionStatus = 'Phone connected';
+              selectedTab = 0;
+            } else {
+              connectionStatus = 'Connection result: $status';
+            }
+          });
+        },
+        onDisconnected: (id) {
+          if (!mounted) return;
+
+          setState(() {
+            connectedDevices.remove(id);
+            connectionStatus = 'Phone disconnected';
+          });
+        },
+      );
+    } catch (e) {
+      showMessage('Connection error: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> sendMessage() async {
+    final text = messageController.text.trim();
 
     if (text.isEmpty) return;
 
-    if (_connected.isEmpty) {
-      _showMessage('Connect to another phone before sending messages');
+    if (connectedDevices.isEmpty) {
+      showMessage('Pehle Nearby tab se doosra phone connect karein.');
       return;
     }
 
-    final payload = Uint8List.fromList(
+    final bytes = Uint8List.fromList(
       utf8.encode(
         jsonEncode({
-          'type': 'chat',
-          'sender': _userName,
+          'type': 'message',
           'text': text,
-          'time': DateTime.now().toIso8601String(),
         }),
       ),
     );
 
-    final failed = <String>[];
-
-    for (final id in _connected.toList()) {
-      try {
-        await _nearby.sendBytesPayload(id, payload);
-      } catch (_) {
-        failed.add(id);
-      }
-    }
-
-    if (!mounted) return;
-
-    if (failed.isNotEmpty) {
-      _showMessage('Some messages could not be sent');
-    }
-
-    setState(() {
-      _messages.add(
-        ChatMessage(
-          text: text,
-          sender: _userName,
-          isMine: true,
-          time: DateTime.now(),
-        ),
-      );
-      _status = 'Message sent';
-    });
-
-    _messageController.clear();
-  }
-
-  Future<void> _disconnectAll() async {
     try {
-      await _nearby.stopAllEndpoints();
-    } catch (e) {
-      _showMessage('Disconnect error: $e');
-    }
+      for (final endpointId in connectedDevices) {
+        await Nearby().sendBytesPayload(endpointId, bytes);
+      }
 
-    if (!mounted) return;
-    setState(() {
-      _connected.clear();
-      _discovered.clear();
-      _status = 'Disconnected from nearby phones';
-    });
+      if (!mounted) return;
+
+      setState(() {
+        messages.add(
+          ChatMessage(
+            text: text,
+            isMine: true,
+            time: DateTime.now(),
+          ),
+        );
+
+        messageController.clear();
+      });
+    } catch (e) {
+      showMessage('Message send nahi hua: $e');
+    }
   }
 
-  @override
-  void dispose() {
-    _messageController.dispose();
-    super.dispose();
+  Widget buildChatPage() {
+    return Column(
+      children: [
+        Expanded(
+          child: messages.isEmpty
+              ? const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          color: blue,
+                          size: 60,
+                        ),
+                        SizedBox(height: 12),
+                        Text(
+                          'Welcome to BlueShare',
+                          style: TextStyle(
+                            fontSize: 21,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          'Offline chat ke liye Nearby tab se doosra phone connect karein.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+
+                    return Align(
+                      alignment: message.isMine
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Container(
+                        constraints: const BoxConstraints(
+                          maxWidth: 300,
+                        ),
+                        margin: const EdgeInsets.symmetric(vertical: 5),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: message.isMine ? blue : panel,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(message.text),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${message.time.hour.toString().padLeft(2, '0')}:${message.time.minute.toString().padLeft(2, '0')}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: messageController,
+                  onSubmitted: (_) => sendMessage(),
+                  decoration: InputDecoration(
+                    hintText: 'Write a message...',
+                    filled: true,
+                    fillColor: panel,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(28),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton.filled(
+                onPressed: sendMessage,
+                icon: const Icon(Icons.send),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildNearbyPage() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const Icon(
+          Icons.bluetooth_searching,
+          size: 62,
+          color: blue,
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Connect nearby devices',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          connectionStatus,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white70),
+        ),
+        const SizedBox(height: 20),
+        TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Your device name',
+            filled: true,
+            fillColor: panel,
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: busy ? null : startAdvertising,
+          icon: const Icon(Icons.visibility),
+          label: const Text('Make this phone visible'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          onPressed: busy ? null : startDiscovery,
+          icon: const Icon(Icons.search),
+          label: const Text('Find nearby phones'),
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          'Found devices',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        if (discoveredDevices.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 18),
+            child: Text(
+              'Abhi koi phone nahi mila. Doosre phone par Make this phone visible dabayein.',
+              style: TextStyle(color: Colors.white70),
+            ),
+          ),
+        ...discoveredDevices.entries.map(
+          (entry) => Card(
+            color: panel,
+            child: ListTile(
+              leading: const CircleAvatar(
+                backgroundColor: blue,
+                child: Icon(Icons.phone_android),
+              ),
+              title: Text(entry.value),
+              subtitle: const Text('Nearby device'),
+              trailing: const Icon(Icons.link, color: blue),
+              onTap: busy
+                  ? null
+                  : () => connectToDevice(entry.key),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget buildPlaceholder(
+    IconData icon,
+    String title,
+    String description,
+  ) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 58, color: blue),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget buildSelectedPage() {
+    switch (selectedTab) {
+      case 0:
+        return buildChatPage();
+      case 1:
+        return buildPlaceholder(
+          Icons.circle_outlined,
+          'Status',
+          'Status sharing abhi implement nahi hui.',
+        );
+      case 2:
+        return buildPlaceholder(
+          Icons.call_outlined,
+          'Calls',
+          'Voice aur video calls abhi implement nahi hui.',
+        );
+      case 3:
+        return buildNearbyPage();
+      default:
+        return buildPlaceholder(
+          Icons.settings_outlined,
+          'Settings',
+          'BlueShare settings',
+        );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    const tabs = [
+      'Chats',
+      'Status',
+      'Calls',
+      'Nearby',
+      'Settings',
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: const Row(
           children: [
-            Icon(Icons.bluetooth_connected, color: Color(0xFF1687FF)),
+            Icon(Icons.wifi_tethering, color: blue, size: 30),
             SizedBox(width: 10),
             Text(
               'BlueShare',
@@ -451,205 +632,69 @@ class _OfflineChatScreenState extends State<OfflineChatScreen> {
         ),
         actions: [
           IconButton(
-            tooltip: 'Disconnect all',
-            onPressed: _disconnectAll,
-            icon: const Icon(Icons.link_off),
+            onPressed: () => setState(() => selectedTab = 3),
+            icon: const Icon(Icons.devices, color: blue),
+            tooltip: 'Nearby devices',
           ),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFF151D2D),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFF26364D)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'OFFLINE CONNECTION',
-                    style: TextStyle(
-                      color: Color(0xFF1687FF),
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(_status),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Your device: $_userName',
-                    style: const TextStyle(color: Colors.white60),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      FilledButton.icon(
-                        onPressed:
-                            _advertising || _busy ? null : _startAdvertising,
-                        icon: const Icon(Icons.wifi_tethering),
-                        label: const Text('Make visible'),
-                      ),
-                      FilledButton.tonalIcon(
-                        onPressed:
-                            _discovering || _busy ? null : _startDiscovery,
-                        icon: const Icon(Icons.search),
-                        label: const Text('Find phones'),
-                      ),
-                      if (_advertising)
-                        OutlinedButton(
-                          onPressed: _stopAdvertising,
-                          child: const Text('Stop visible'),
-                        ),
-                      if (_discovering)
-                        OutlinedButton(
-                          onPressed: _stopDiscovery,
-                          child: const Text('Stop search'),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Connected phones: ${_connected.length}',
-                    style: const TextStyle(color: Colors.lightGreenAccent),
-                  ),
+      body: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0xFF123D77),
+                  panel,
                 ],
               ),
+              borderRadius: BorderRadius.circular(18),
             ),
-            if (_discovered.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF101827),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Nearby devices',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    ..._discovered.entries.map((entry) {
-                      final connected = _connected.contains(entry.key);
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: const CircleAvatar(
-                          backgroundColor: Color(0xFF183A68),
-                          child: Icon(Icons.phone_android),
-                        ),
-                        title: Text(entry.value),
-                        subtitle: Text(
-                          connected ? 'Connected' : 'Tap to connect',
-                        ),
-                        trailing: connected
-                            ? const Icon(
-                                Icons.check_circle,
-                                color: Colors.lightGreenAccent,
-                              )
-                            : IconButton(
-                                onPressed: () => _connectTo(entry.key),
-                                icon: const Icon(
-                                  Icons.link,
-                                  color: Color(0xFF1687FF),
-                                ),
-                              ),
-                      );
-                    }),
-                  ],
-                ),
-              ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Messages',
+            child: const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Stay connected.',
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: 23,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
+                SizedBox(height: 6),
+                Text(
+                  'Chat and share with people nearby.',
+                  style: TextStyle(color: Colors.white70),
+                ),
+              ],
             ),
-            Expanded(
-              child: _messages.isEmpty
-                  ? const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.chat_bubble_outline,
-                              size: 52,
-                              color: Color(0xFF1687FF),
-                            ),
-                            SizedBox(height: 12),
-                            Text(
-                              'No messages yet',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Connect two phones, then send your first message.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.white60),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        final message = _messages[index];
-                        return Align(
-                          alignment: message.isMine
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            constraints: BoxConstraints(
-                              maxWidth:
-                                  MediaQuery.of(context).size.width * 0.78,
-                            ),
-                            margin: const EdgeInsets.only(bottom: 10),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: message.isMine
-                                  ? const Color(0xFF1265C7)
-                                  : const Color(0xFF1B2638),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!message.isMine)
-                                  Text(
-                                    message.sender,
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.lightBlueAccent,
-                                    ),
-                                  ),
-                                Text(message.text),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${message.time.hour.toString().padLeft(2, '0')}:'
-                                  '${message.time.minute.toString
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: List.generate(tabs.length, (index) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: ChoiceChip(
+                    label: Text(tabs[index]),
+                    selected: selectedTab == index,
+                    selectedColor: blue,
+                    onSelected: (_) {
+                      setState(() => selectedTab = index);
+                    },
+                  ),
+                );
+              }),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(child: buildSelectedPage()),
+        ],
+      ),
+    );
+  }
+}
+
+  
