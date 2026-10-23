@@ -495,31 +495,27 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         const SizedBox(height: 16),
         const Center(
-          child: Padding(
-            padding: EdgeInsets.all(30),
-            child: Column(
-              children: const [
-                Icon(
-                  Icons.call_outlined,
-                  size: 60,
-                  color: blue,
-                ),
-                SizedBox(height: 12),
-                Text(
-                  'No calls yet',
-                  style: TextStyle(fontSize: 18),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Calling feature is not connected yet.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white60),
-                ),
-              ],
-            ),
-          ),
+  child: Padding(
+    padding: EdgeInsets.all(30),
+    child: Column(
+      children: [
+        Icon(
+          Icons.call_outlined,
+          size: 60,
+          color: blue,
+        ),
+        SizedBox(height: 12),
+        Text(
+          'No calls yet',
+          style: TextStyle(fontSize: 18),
+        ),
+        SizedBox(height: 8),
+        Text(
+          'Calling feature is not connected yet.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Colors.white60),
         ),
       ],
-    );
-  }
-}
+    ),
+  ),
+),
