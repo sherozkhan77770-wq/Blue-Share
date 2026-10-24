@@ -1,8 +1,9 @@
-// PART 1 — yahan se copy shuru karo
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:nearby_connections/nearby_connections.dart';
 import 'package:path_provider/path_provider.dart';
@@ -11,7 +12,9 @@ import 'package:permission_handler/permission_handler.dart';
 const String serviceId = 'com.example.blue_share';
 const Strategy nearbyStrategy = Strategy.P2P_CLUSTER;
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const BlueShareApp());
 }
 
@@ -36,7 +39,234 @@ class BlueShareApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const HomePage(),
+      home: const AuthGate(),
+    );
+  }
+}
+
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.authStateChanges(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: Color(0xFF080B12),
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasData) return const HomePage();
+        return const PhoneLoginPage();
+      },
+    );
+  }
+}
+
+class PhoneLoginPage extends StatefulWidget {
+  const PhoneLoginPage({super.key});
+
+  @override
+  State<PhoneLoginPage> createState() => _PhoneLoginPageState();
+}
+
+class _PhoneLoginPageState extends State<PhoneLoginPage> {
+  final _phoneController = TextEditingController();
+  final _otpController = TextEditingController();
+  String? _verificationId;
+  bool _sendingCode = false;
+  bool _verifyingCode = false;
+
+  @override
+  void dispose() {
+    _phoneController.dispose();
+    _otpController.dispose();
+    super.dispose();
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: const Color(0xFF1268C4),
+      ),
+    );
+  }
+
+  Future<void> _sendCode() async {
+    final rawPhone = _phoneController.text.trim();
+    if (rawPhone.isEmpty) {
+      _showMessage(
+        'Enter your phone number with country code, e.g. +923001234567',
+      );
+      return;
+    }
+    if (!rawPhone.startsWith('+') || rawPhone.length < 8) {
+      _showMessage('Use international format, e.g. +923001234567');
+      return;
+    }
+
+    setState(() => _sendingCode = true);
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: rawPhone,
+        timeout: const Duration(seconds: 60),
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          try {
+            await FirebaseAuth.instance.signInWithCredential(credential);
+          } catch (e) {
+            _showMessage('Automatic verification failed: $e');
+          }
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          _showMessage(
+            e.message ??
+                'Could not send verification code. Check Firebase settings.',
+          );
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          if (!mounted) return;
+          setState(() => _verificationId = verificationId);
+          _showMessage('Verification code sent by SMS');
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          if (mounted) setState(() => _verificationId = verificationId);
+        },
+      );
+    } catch (e) {
+      _showMessage('Could not start phone verification: $e');
+    } finally {
+      if (mounted) setState(() => _sendingCode = false);
+    }
+  }
+
+  Future<void> _verifyCode() async {
+    final verificationId = _verificationId;
+    final smsCode = _otpController.text.trim();
+    if (verificationId == null) {
+      _showMessage('First request an SMS code');
+      return;
+    }
+    if (smsCode.length < 4) {
+      _showMessage('Enter the SMS verification code');
+      return;
+    }
+
+    setState(() => _verifyingCode = true);
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: verificationId,
+        smsCode: smsCode,
+      );
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      // AuthGate automatically opens HomePage after successful sign-in.
+    } on FirebaseAuthException catch (e) {
+      _showMessage(e.message ?? 'Invalid verification code');
+    } catch (e) {
+      _showMessage('Could not verify code: $e');
+    } finally {
+      if (mounted) setState(() => _verifyingCode = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF080B12),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Icon(
+                    Icons.share,
+                    size: 72,
+                    color: Colors.lightBlueAccent,
+                  ),                  const SizedBox(height: 16),
+                  const Text(
+                    'Blue-Share',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 30,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Sign in with your phone number',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 32),
+                  TextField(
+                    controller: _phoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Phone number',
+                      hintText: '+923001234567',
+                      prefixIcon: Icon(Icons.phone_android),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  FilledButton(
+                    onPressed: _sendingCode ? null : _sendCode,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(
+                        _sendingCode
+                            ? 'Sending code...'
+                            : 'Send verification code',
+                      ),
+                    ),
+                  ),
+                  if (_verificationId != null) ...[
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: _otpController,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'SMS verification code',
+                        prefixIcon: Icon(Icons.password),
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton(
+                      onPressed: _verifyingCode ? null : _verifyCode,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          _verifyingCode
+                              ? 'Verifying...'
+                              : 'Verify and log in',
+                        ),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Enter your number with country code, for example +92 for Pakistan.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -64,8 +294,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final Nearby nearby = Nearby();
-  final TextEditingController messageController =
-      TextEditingController();
+  final TextEditingController messageController = TextEditingController();
   final List<ChatMessage> messages = [];
   final Map<String, String> devices = {};
   final Set<int> completedFiles = {};
@@ -159,7 +388,7 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       busy = true;
       statusText = 'Searching for nearby phones...';
-      devices.clear();
+            devices.clear();
     });
 
     try {
@@ -177,7 +406,8 @@ class _HomePageState extends State<HomePage> {
         onEndpointLost: (id) {
           if (!mounted) return;
           setState(() => devices.remove(id));
-        },        serviceId: serviceId,
+        },
+        serviceId: serviceId,
       );
       if (!mounted) return;
       setState(() => isDiscovering = true);
@@ -321,9 +551,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _finishIncomingFile(int id) async {
     final uri = incomingUris[id];
     final name = incomingNames[id];
-    if (uri == null || name == null || !completedFiles.contains(id)) {
-      return;
-    }
+    if (uri == null || name == null || !completedFiles.contains(id)) return;
 
     try {
       final directory = await getExternalStorageDirectory();
@@ -331,29 +559,23 @@ class _HomePageState extends State<HomePage> {
         _showMessage('Could not find a folder to save the file');
         return;
       }
-      final safeName = name.replaceAll(
-        RegExp(r'[\\/:*?"<>|]'),
-        '_',
-      );
+      final safeName = name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
       final destination = File('${directory.path}/$safeName');
       await File.fromUri(Uri.parse(uri)).copy(destination.path);
 
       if (!mounted) return;
       setState(() {
-        messages.add(
-          ChatMessage(
-            text: 'File received and saved',
-            mine: false,
-            filePath: destination.path,
-            fileName: safeName,
-          ),
-        );
+        messages.add(ChatMessage(
+          text: 'File received and saved',
+          mine: false,
+          filePath: destination.path,
+          fileName: safeName,
+        ));
       });
       _showMessage('File saved to ${destination.path}');
       incomingUris.remove(id);
       incomingNames.remove(id);
-      completedFiles.remove(id);
-    } catch (e) {
+      completedFiles.remove(id);    } catch (e) {
       _showMessage('Could not save received file: $e');
     }
   }
@@ -365,7 +587,9 @@ class _HomePageState extends State<HomePage> {
     if (endpointId == null) {
       _showMessage('First connect to another phone');
       return;
-    }    try {
+    }
+
+    try {
       await nearby.sendBytesPayload(endpointId, utf8.encode(text));
       if (!mounted) return;
       setState(() => messages.add(ChatMessage(text: text, mine: true)));
@@ -400,24 +624,20 @@ class _HomePageState extends State<HomePage> {
       outgoingNames[payloadId] = picked.name;
       await nearby.sendBytesPayload(
         endpointId,
-        utf8.encode(
-          '__BS_FILE__:${jsonEncode({
-            'id': payloadId,
-            'name': picked.name,
-          })}',
-        ),
+        utf8.encode('__BS_FILE__:${jsonEncode({
+          'id': payloadId,
+          'name': picked.name,
+        })}'),
       );
 
       if (!mounted) return;
       setState(() {
-        messages.add(
-          ChatMessage(
-            text: 'Sending file...',
-            mine: true,
-            filePath: path,
-            fileName: picked.name,
-          ),
-        );
+        messages.add(ChatMessage(
+          text: 'Sending file...',
+          mine: true,
+          filePath: path,
+          fileName: picked.name,
+        ));
       });
       _showMessage('Sending ${picked.name}');
     } catch (e) {
@@ -549,9 +769,9 @@ class _HomePageState extends State<HomePage> {
                     );
                   },
                 ),
-        ),
-        SafeArea(
-          top: false,          child: Padding(
+        ),        SafeArea(
+          top: false,
+          child: Padding(
             padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
             child: Row(
               children: [
@@ -606,10 +826,7 @@ class _HomePageState extends State<HomePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          statusText,
-          style: const TextStyle(color: Colors.white70),
-        ),
+        Text(statusText, style: const TextStyle(color: Colors.white70)),
         const SizedBox(height: 16),
         FilledButton.icon(
           onPressed: busy ? null : _startAdvertising,
@@ -631,10 +848,7 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 22),
         const Text(
           'Nearby devices',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         if (devices.isEmpty)
@@ -659,10 +873,7 @@ class _HomePageState extends State<HomePage> {
               title: Text(entry.value),
               subtitle: const Text('Nearby device'),
               trailing: FilledButton(
-                onPressed: () => _connectToDevice(
-                  entry.key,
-                  entry.value,
-                ),
+                onPressed: () => _connectToDevice(entry.key, entry.value),
                 child: const Text('Connect'),
               ),
             ),
@@ -683,11 +894,7 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              icon,
-              size: 60,
-              color: Colors.blueAccent,
-            ),
+            Icon(icon, size: 60, color: Colors.blueAccent),
             const SizedBox(height: 14),
             Text(
               title,
@@ -748,9 +955,7 @@ class _HomePageState extends State<HomePage> {
       body: pages[selectedTab],
       bottomNavigationBar: NavigationBar(
         selectedIndex: selectedTab,
-        onDestinationSelected: (index) {
-          setState(() => selectedTab = index);
-        },
+        onDestinationSelected: (index) => setState(() => selectedTab = index),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.chat),
@@ -772,4 +977,4 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-                                    }
+                                              }
