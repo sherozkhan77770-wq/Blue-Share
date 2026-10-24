@@ -12,9 +12,18 @@ import 'package:permission_handler/permission_handler.dart';
 const String serviceId = 'com.example.blue_share';
 const Strategy nearbyStrategy = Strategy.P2P_CLUSTER;
 
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+
+  try {
+    await Firebase.initializeApp().timeout(
+      const Duration(seconds: 8),
+    );
+  } catch (e) {
+    debugPrint('Firebase initialization error: $e');
+  }
+
   runApp(const BlueShareApp());
 }
 
